@@ -74,9 +74,12 @@ export default function VoiceTranscriptionPreview() {
   const handleTranscribe = async (blob: Blob) => {
     setIsTranscribing(true);
     setError(null);
+    setTranscription(""); // Clear previous transcription
 
     try {
-      const text = await transcribeAudio(blob);
+      // Import the AssemblyAI service directly to ensure we're using the real service
+      const assemblyAIService = await import("@/services/assemblyaiService");
+      const text = await assemblyAIService.transcribeAudio(blob);
       setTranscription(text);
     } catch (err) {
       console.error("Transcription error:", err);

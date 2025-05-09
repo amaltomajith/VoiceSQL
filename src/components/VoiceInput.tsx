@@ -81,6 +81,7 @@ export default function VoiceInput({
       reader.onload = () => {
         const arrayBuffer = reader.result as ArrayBuffer;
         const blob = new Blob([arrayBuffer], { type: file.type });
+        // Don't automatically process the audio, just store it
         onAudioCaptured(blob);
       };
       reader.readAsArrayBuffer(file);

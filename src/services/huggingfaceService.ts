@@ -13,34 +13,15 @@ const HF_API_URL = "https://api-inference.huggingface.co/models";
  */
 export async function transcribeAudio(audioBlob: Blob): Promise<string> {
   try {
-    // Using a free and available ASR model
-    const model = "facebook/wav2vec2-large-960h-lv60-self";
-
-    // Convert audio to proper format if needed
-    const formData = new FormData();
-    formData.append("file", audioBlob, "audio.wav");
-
-    // Make request to Hugging Face Inference API
-    const response = await fetch(`${HF_API_URL}/${model}`, {
-      method: "POST",
-      headers: {
-        // No API key required for public models with free inference
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      // Fallback to mock transcription for demo purposes
-      console.warn("Hugging Face API failed, using mock transcription");
-      return mockTranscribeAudio();
-    }
-
-    const result = await response.json();
-    return result.text || "";
+    // Use AssemblyAI service instead of Hugging Face
+    // This will ensure we're using the actual transcription service
+    const assemblyAIService = await import("./assemblyaiService");
+    return await assemblyAIService.transcribeAudio(audioBlob);
   } catch (error) {
     console.error("Error transcribing audio:", error);
-    // Fallback to mock transcription for demo purposes
-    return mockTranscribeAudio();
+    throw new Error(
+      "Failed to transcribe audio. Please check your microphone and try again.",
+    );
   }
 }
 

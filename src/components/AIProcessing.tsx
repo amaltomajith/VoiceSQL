@@ -5,11 +5,8 @@ import { Button } from "./ui/button";
 import { Code, Play, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import {
-  transcribeAudio,
-  generateSql,
-  extractTextFromPdf,
-} from "@/services/huggingfaceService";
+import { transcribeAudio } from "@/services/assemblyaiService";
+import { generateSql } from "@/services/groqService";
 
 interface AIProcessingProps {
   audioBlob?: Blob;
@@ -46,17 +43,46 @@ export default function AIProcessing({
       // Process audio input if available
       if (audioBlob) {
         try {
-          query = await transcribeAudio(audioBlob);
+          // Import the AssemblyAI service directly to ensure we're using the real service
+          const assemblyAIService = await import(
+            "@/services/assemblyaiService"
+          );
+          query = await assemblyAIService.transcribeAudio(audioBlob);
           if (!query) {
             throw new Error("Could not transcribe audio. Please try again.");
           }
           setNaturalLanguageQuery(query);
         } catch (err) {
-          throw new Error(
-            err instanceof Error
-              ? `Audio transcription error: ${err.message}`
-              : "Failed to transcribe audio",
-          );
+          // Handle specific AssemblyAI API errors
+          if (err instanceof Error) {
+            if (err.message.includes("AssemblyAI API key not found")) {
+              throw new Error(
+                "AssemblyAI API key is missing. Please check your environment variables.",
+              );
+            } else if (err.message.includes("AssemblyAI upload error")) {
+              throw new Error(
+                "Failed to upload audio to AssemblyAI. Please try again with a different audio file.",
+              );
+            } else if (err.message.includes("AssemblyAI transcription error")) {
+              throw new Error(
+                "Failed to transcribe audio. The audio might be too noisy or in an unsupported format.",
+              );
+            } else if (err.message.includes("AssemblyAI polling error")) {
+              throw new Error(
+                "Failed to retrieve transcription results. Please try again later.",
+              );
+            } else if (
+              err.message.includes("AssemblyAI transcription failed")
+            ) {
+              throw new Error(
+                "Transcription failed. The audio might be too long or in an unsupported format.",
+              );
+            } else {
+              throw new Error(`Audio transcription error: ${err.message}`);
+            }
+          } else {
+            throw new Error("Failed to transcribe audio. Please try again.");
+          }
         }
       } else if (textInput) {
         // Use text input directly
@@ -69,6 +95,8 @@ export default function AIProcessing({
       // Generate SQL from the query using the schema if available
       const result = await generateSql(query, schema || undefined);
       setGeneratedSql(result.sql);
+
+      // Don't automatically execute the query, wait for user confirmation
 
       // Pass the generated SQL and natural language to the parent component
       // but don't automatically execute it

@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronLeft, ChevronRight, Download, RefreshCw } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  RefreshCw,
+  Volume2,
+} from "lucide-react";
+import { generateResultsSummary } from "@/services/groqService";
+import { executeQuery } from "@/services/databaseService";
 
 interface ResultsDisplayProps {
   sql: string;
@@ -10,7 +18,7 @@ interface ResultsDisplayProps {
   className?: string;
 }
 
-type MockResultRow = Record<string, string | number>;
+type ResultRow = Record<string, string | number>;
 
 export default function ResultsDisplay({
   sql,
@@ -21,48 +29,73 @@ export default function ResultsDisplay({
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [results, setResults] = useState<MockResultRow[]>([]);
+  const [results, setResults] = useState<ResultRow[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [summary, setSummary] = useState<string>("");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Simulate loading results when component mounts
-  useState(() => {
-    const timer = setTimeout(() => {
-      // Generate mock results based on the SQL query
-      const mockResults = generateMockResults();
-      setResults(mockResults);
-      setColumns(Object.keys(mockResults[0] || {}));
-      setTotalPages(Math.ceil(mockResults.length / 10));
-      setSummary(generateMockSummary());
-      setIsLoading(false);
-    }, 1500);
+  // Execute SQL query and load results when component mounts
+  useEffect(() => {
+    const fetchResults = async () => {
+      setIsLoading(true);
+      setError(null);
 
-    return () => clearTimeout(timer);
-  });
+      try {
+        // Execute the SQL query against the database using our database service
+        console.log("Executing SQL query:", sql);
 
-  const generateMockResults = (): MockResultRow[] => {
-    // This is a mock function that generates fake data
-    // In a real app, this would be the result of executing the SQL query
-    const mockData: MockResultRow[] = [];
+        // Execute the actual query against the database
+        const queryResults = await executeQuery(sql);
 
-    // Generate between 15-30 rows of mock data
-    const rowCount = Math.floor(Math.random() * 15) + 15;
+        // Ensure queryResults is an array
+        const resultsArray = Array.isArray(queryResults)
+          ? queryResults
+          : [queryResults];
+        setResults(resultsArray);
 
-    for (let i = 0; i < rowCount; i++) {
-      mockData.push({
-        customer_name: `Customer ${i + 1}`,
-        order_date: `2023-${String(Math.floor(Math.random() * 12) + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, "0")}`,
-        total_amount: Math.floor(Math.random() * 10000) / 100,
-      });
-    }
+        // Safely extract columns
+        setColumns(
+          resultsArray.length > 0 ? Object.keys(resultsArray[0] || {}) : [],
+        );
+        setTotalPages(Math.max(1, Math.ceil(resultsArray.length / 10)));
 
-    return mockData;
-  };
+        // Generate summary using Groq with the actual results
+        setSummaryLoading(true);
+        try {
+          const summaryText = await generateResultsSummary(
+            queryResults,
+            naturalLanguageQuery,
+          );
+          setSummary(summaryText);
+        } catch (summaryError) {
+          console.error("Error generating summary:", summaryError);
+          setSummary("Could not generate summary. Please try again later.");
+        } finally {
+          setSummaryLoading(false);
+        }
 
-  const generateMockSummary = (): string => {
-    // Generate a natural language summary of the results
-    return `Found ${results.length} customers who made purchases last month. The average purchase amount was $${(results.reduce((sum, row) => sum + (typeof row.total_amount === "number" ? row.total_amount : 0), 0) / results.length).toFixed(2)}.`;
-  };
+        setIsLoading(false);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An error occurred while processing results",
+        );
+        setIsLoading(false);
+      }
+    };
+
+    fetchResults();
+
+    return () => {
+      // Cancel any text-to-speech if component unmounts
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [naturalLanguageQuery, sql]);
 
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
@@ -89,6 +122,26 @@ export default function ResultsDisplay({
     document.body.removeChild(link);
   };
 
+  const handleTextToSpeech = () => {
+    if (!window.speechSynthesis) {
+      console.error("Text-to-speech not supported in this browser");
+      return;
+    }
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(summary);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
   // Get current page of results
   const startIndex = (currentPage - 1) * 10;
   const endIndex = startIndex + 10;
@@ -113,9 +166,36 @@ export default function ResultsDisplay({
           marginBottom: "30px",
         }}
       >
-        <h4 style={{ fontSize: "16px", fontWeight: 500, marginBottom: "10px" }}>
-          Summary
-        </h4>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "10px",
+          }}
+        >
+          <h4 style={{ fontSize: "16px", fontWeight: 500 }}>Summary</h4>
+          {!summaryLoading && summary && (
+            <button
+              onClick={handleTextToSpeech}
+              style={{
+                background: isSpeaking
+                  ? "rgba(255, 0, 79, 0.2)"
+                  : "transparent",
+                border: "1px solid #555",
+                borderRadius: "4px",
+                width: "40px",
+                height: "40px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <Volume2 size={16} />
+            </button>
+          )}
+        </div>
         <p
           style={{
             background: "#1a1a1a",
@@ -124,7 +204,7 @@ export default function ResultsDisplay({
             border: "1px solid #333",
           }}
         >
-          {isLoading ? (
+          {summaryLoading ? (
             <span
               style={{ display: "flex", alignItems: "center", gap: "10px" }}
             >
@@ -134,6 +214,8 @@ export default function ResultsDisplay({
               />
               Generating summary...
             </span>
+          ) : error ? (
+            <span style={{ color: "#ff4d4f" }}>Error: {error}</span>
           ) : (
             summary
           )}
@@ -188,6 +270,19 @@ export default function ResultsDisplay({
                   </div>
                 </td>
               </tr>
+            ) : error ? (
+              <tr>
+                <td
+                  colSpan={columns.length || 3}
+                  style={{
+                    height: "100px",
+                    textAlign: "center",
+                    color: "#ff4d4f",
+                  }}
+                >
+                  Error loading results: {error}
+                </td>
+              </tr>
             ) : currentResults.length === 0 ? (
               <tr>
                 <td
@@ -226,7 +321,7 @@ export default function ResultsDisplay({
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           <button
             onClick={handleDownloadCsv}
-            disabled={isLoading || results.length === 0}
+            disabled={isLoading || results.length === 0 || !!error}
             style={{
               background: "transparent",
               border: "1px solid #555",
@@ -237,8 +332,10 @@ export default function ResultsDisplay({
               alignItems: "center",
               justifyContent: "center",
               cursor:
-                isLoading || results.length === 0 ? "not-allowed" : "pointer",
-              opacity: isLoading || results.length === 0 ? 0.5 : 1,
+                isLoading || results.length === 0 || !!error
+                  ? "not-allowed"
+                  : "pointer",
+              opacity: isLoading || results.length === 0 || !!error ? 0.5 : 1,
             }}
           >
             <Download size={16} />
@@ -247,7 +344,7 @@ export default function ResultsDisplay({
           <div style={{ display: "flex", alignItems: "center" }}>
             <button
               onClick={handlePreviousPage}
-              disabled={currentPage === 1 || isLoading}
+              disabled={currentPage === 1 || isLoading || !!error}
               style={{
                 background: "transparent",
                 border: "1px solid #555",
@@ -258,8 +355,10 @@ export default function ResultsDisplay({
                 alignItems: "center",
                 justifyContent: "center",
                 cursor:
-                  currentPage === 1 || isLoading ? "not-allowed" : "pointer",
-                opacity: currentPage === 1 || isLoading ? 0.5 : 1,
+                  currentPage === 1 || isLoading || !!error
+                    ? "not-allowed"
+                    : "pointer",
+                opacity: currentPage === 1 || isLoading || !!error ? 0.5 : 1,
               }}
             >
               <ChevronLeft size={16} />
@@ -269,7 +368,7 @@ export default function ResultsDisplay({
             </span>
             <button
               onClick={handleNextPage}
-              disabled={currentPage === totalPages || isLoading}
+              disabled={currentPage === totalPages || isLoading || !!error}
               style={{
                 background: "transparent",
                 border: "1px solid #555",
@@ -280,10 +379,11 @@ export default function ResultsDisplay({
                 alignItems: "center",
                 justifyContent: "center",
                 cursor:
-                  currentPage === totalPages || isLoading
+                  currentPage === totalPages || isLoading || !!error
                     ? "not-allowed"
                     : "pointer",
-                opacity: currentPage === totalPages || isLoading ? 0.5 : 1,
+                opacity:
+                  currentPage === totalPages || isLoading || !!error ? 0.5 : 1,
               }}
             >
               <ChevronRight size={16} />

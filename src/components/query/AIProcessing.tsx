@@ -2,11 +2,9 @@
 
 import { useState } from "react";
 import { Code, Play, AlertCircle } from "lucide-react";
-import {
-  transcribeAudio,
-  generateSql,
-  extractTextFromPdf,
-} from "@/services/huggingfaceService";
+import { transcribeAudio } from "@/services/assemblyaiService";
+import { generateSql } from "@/services/groqService";
+import { extractTextFromPdf } from "@/services/huggingfaceService";
 
 interface AIProcessingProps {
   audioBlob?: Blob;
@@ -43,17 +41,46 @@ export default function AIProcessing({
       // Process audio input if available
       if (audioBlob) {
         try {
-          query = await transcribeAudio(audioBlob);
+          // Import the AssemblyAI service directly to ensure we're using the real service
+          const assemblyAIService = await import(
+            "@/services/assemblyaiService"
+          );
+          query = await assemblyAIService.transcribeAudio(audioBlob);
           if (!query) {
             throw new Error("Could not transcribe audio. Please try again.");
           }
           setNaturalLanguageQuery(query);
         } catch (err) {
-          throw new Error(
-            err instanceof Error
-              ? `Audio transcription error: ${err.message}`
-              : "Failed to transcribe audio",
-          );
+          // Handle specific AssemblyAI API errors
+          if (err instanceof Error) {
+            if (err.message.includes("AssemblyAI API key not found")) {
+              throw new Error(
+                "AssemblyAI API key is missing. Please check your environment variables.",
+              );
+            } else if (err.message.includes("AssemblyAI upload error")) {
+              throw new Error(
+                "Failed to upload audio to AssemblyAI. Please try again with a different audio file.",
+              );
+            } else if (err.message.includes("AssemblyAI transcription error")) {
+              throw new Error(
+                "Failed to transcribe audio. The audio might be too noisy or in an unsupported format.",
+              );
+            } else if (err.message.includes("AssemblyAI polling error")) {
+              throw new Error(
+                "Failed to retrieve transcription results. Please try again later.",
+              );
+            } else if (
+              err.message.includes("AssemblyAI transcription failed")
+            ) {
+              throw new Error(
+                "Transcription failed. The audio might be too long or in an unsupported format.",
+              );
+            } else {
+              throw new Error(`Audio transcription error: ${err.message}`);
+            }
+          } else {
+            throw new Error("Failed to transcribe audio. Please try again.");
+          }
         }
       } else if (textInput) {
         // Use text input directly
@@ -65,7 +92,69 @@ export default function AIProcessing({
 
       // Generate SQL from the query using the schema if available
       const result = await generateSql(query, schema || undefined);
-      setGeneratedSql(result.sql);
+
+      // Enhanced SQL syntax validation before setting
+      try {
+        // Check for common SQL syntax issues
+        const sql = result.sql.trim();
+
+        // Check for unbalanced parentheses
+        const openParens = (sql.match(/\(/g) || []).length;
+        const closeParens = (sql.match(/\)/g) || []).length;
+        if (openParens !== closeParens) {
+          throw new Error("SQL syntax error: Unbalanced parentheses");
+        }
+
+        // Check for missing semicolons in multi-statement queries
+        if (
+          sql.includes(";") &&
+          !sql.endsWith(";") &&
+          sql.indexOf(";") !== sql.lastIndexOf(";")
+        ) {
+          throw new Error(
+            "SQL syntax error: Missing semicolon at the end of a statement",
+          );
+        }
+
+        // Check for multiple semicolons at the end
+        if (/;\s*;/.test(sql)) {
+          throw new Error(
+            "SQL syntax error: Multiple consecutive semicolons detected",
+          );
+        }
+
+        // Check for semicolons in the middle of a statement (simplified check)
+        const statements = sql.split(";").filter((s) => s.trim().length > 0);
+        if (statements.length > 1) {
+          // If we have multiple statements, check each one for basic structure
+          for (const statement of statements) {
+            if (
+              !statement
+                .trim()
+                .toLowerCase()
+                .match(/^(select|insert|update|delete|create|alter|drop|with)/i)
+            ) {
+              throw new Error(
+                "SQL syntax error: Invalid statement structure or misplaced semicolon",
+              );
+            }
+          }
+        }
+
+        // Clean up the SQL - remove any trailing semicolons that might cause issues
+        const cleanedSql = sql.replace(/;\s*$/, "");
+        setGeneratedSql(cleanedSql);
+      } catch (syntaxError) {
+        setError(
+          syntaxError instanceof Error
+            ? syntaxError.message
+            : "SQL syntax validation failed",
+        );
+        // Still set the SQL so the user can see and fix it
+        setGeneratedSql(result.sql);
+      }
+
+      // Don't automatically execute the query, wait for user confirmation
 
       // Pass the generated SQL and natural language to the parent component
       // but don't automatically execute it
@@ -87,7 +176,7 @@ export default function AIProcessing({
           AI Processing
         </h3>
         <p style={{ color: "#ababab", marginBottom: "20px" }}>
-          Convert your input to SQL using AI
+          Convert your input to SQL using Groq AI
         </p>
       </div>
 
@@ -215,24 +304,34 @@ export default function AIProcessing({
         <div
           style={{
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
+            alignItems: "center",
             marginTop: "20px",
           }}
         >
-          <button
-            onClick={() => onSqlGenerated(generatedSql, naturalLanguageQuery)}
-            className="btn"
-            style={{
-              background: "#ff004f",
-              margin: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-            }}
-          >
-            <Play size={16} />
-            Execute Query
-          </button>
+          {error && (
+            <div
+              style={{ color: "#ff4d4f", fontSize: "14px", maxWidth: "60%" }}
+            >
+              <span style={{ fontWeight: 500 }}>Warning:</span> {error}
+            </div>
+          )}
+          <div style={{ marginLeft: error ? "auto" : "0" }}>
+            <button
+              onClick={() => onSqlGenerated(generatedSql, naturalLanguageQuery)}
+              className="btn"
+              style={{
+                background: "#ff004f",
+                margin: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <Play size={16} />
+              Execute Query
+            </button>
+          </div>
         </div>
       )}
 

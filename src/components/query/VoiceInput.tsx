@@ -91,6 +91,7 @@ export default function VoiceInput({
         setAudioBlob(blob);
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
+        // Don't automatically submit the audio
       };
       reader.readAsArrayBuffer(file);
     } else if (file) {
@@ -136,6 +137,8 @@ export default function VoiceInput({
   const submitAudio = () => {
     if (audioBlob) {
       onAudioCaptured(audioBlob);
+      // Provide feedback to the user
+      alert("Audio submitted for processing!");
     }
   };
 
