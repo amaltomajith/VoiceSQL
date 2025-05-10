@@ -137,8 +137,8 @@ export default function VoiceInput({
   const submitAudio = () => {
     if (audioBlob) {
       onAudioCaptured(audioBlob);
-      // Provide feedback to the user
-      alert("Audio submitted for processing!");
+      // Process silently without alerts
+      console.log("Audio submitted for processing");
     }
   };
 

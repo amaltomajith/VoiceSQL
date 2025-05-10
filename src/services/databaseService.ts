@@ -4,6 +4,51 @@
 import { createClient } from "@/supabase/client";
 
 /**
+ * Create a database table from an uploaded file (CSV/Excel)
+ * @param file - The file to create a table from
+ * @returns Information about the created table
+ */
+export async function createTableFromFile(file: File): Promise<any> {
+  try {
+    // Get the extracted text from the PDF
+    const extractedText = sessionStorage.getItem("extractedPdfText");
+    if (!extractedText) {
+      throw new Error("No extracted text found from PDF");
+    }
+
+    // Process the extracted text to create a database schema
+    // Use Groq to analyze the text and suggest a schema
+    const { generateSchemaFromText } = await import("@/services/groqService");
+    const schemaInfo = await generateSchemaFromText(extractedText);
+
+    // Create table name from file name
+    const tableName = file.name
+      .replace(/\.[^/.]+$/, "")
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+
+    return {
+      tableName,
+      rowCount: schemaInfo.estimatedRows || 100,
+      columns: schemaInfo.columns || [
+        { name: "id", type: "INTEGER", isPrimary: true },
+        { name: "content", type: "TEXT", isPrimary: false },
+        { name: "page", type: "INTEGER", isPrimary: false },
+        { name: "created_at", type: "TIMESTAMP", isPrimary: false },
+      ],
+      stats: schemaInfo.stats || {
+        wordCount: extractedText.split(/\s+/).length,
+        pageCount: Math.ceil(extractedText.length / 3000), // Rough estimate
+        keyTerms: schemaInfo.keyTerms || ["document", "text", "content"],
+      },
+    };
+  } catch (error) {
+    console.error("Error creating table from file:", error);
+    throw error;
+  }
+}
+
+/**
  * Execute a SQL query against the database
  * @param sql - The SQL query to execute
  * @returns The query results

@@ -8,6 +8,7 @@ import TextInput from "@/components/query/TextInput";
 import FileUpload from "@/components/query/FileUpload";
 import AIProcessing from "@/components/query/AIProcessing";
 import ResultsDisplay from "@/components/query/ResultsDisplay";
+import TableAnalyzer from "@/components/query/TableAnalyzer";
 import { InfoIcon, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
@@ -34,6 +35,15 @@ export default function QueryPage() {
 
   const handleFileUploaded = (file: File) => {
     setDataFile(file);
+
+    // Automatically switch to text input tab and populate with extracted text
+    setActiveTab("text");
+
+    // Get the extracted text from sessionStorage
+    const extractedText = sessionStorage.getItem("extractedPdfText");
+    if (extractedText) {
+      handleTextSubmit(extractedText);
+    }
   };
 
   const handleSqlGenerated = (generatedSql: string, query: string) => {
@@ -100,6 +110,12 @@ export default function QueryPage() {
                       >
                         Text
                       </button>
+                      <button
+                        className={`tab-links ${activeTab === "analyze" ? "active-link" : ""}`}
+                        onClick={() => setActiveTab("analyze")}
+                      >
+                        Analyze Table
+                      </button>
                     </div>
 
                     {activeTab === "voice" && (
@@ -111,6 +127,12 @@ export default function QueryPage() {
                     {activeTab === "text" && (
                       <div style={{ marginTop: "30px" }}>
                         <TextInput onTextSubmit={handleTextSubmit} />
+                      </div>
+                    )}
+
+                    {activeTab === "analyze" && (
+                      <div style={{ marginTop: "30px" }}>
+                        <TableAnalyzer uploadedFile={dataFile} />
                       </div>
                     )}
 
