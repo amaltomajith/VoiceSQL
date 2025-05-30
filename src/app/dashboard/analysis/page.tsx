@@ -12,9 +12,10 @@ export default function AnalysisPage() {
   const supabase = createClient();
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [tables, setTables] = useState([]);
+  
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState("");
+  const [tables, setTables] = useState<any[]>([]);
 
   useEffect(() => {
     const getUser = async () => {
